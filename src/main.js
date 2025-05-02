@@ -26,8 +26,45 @@ export default async function main() {
 
     try {
         // 에셋 로드
-        const walkSheet = await Assets.load("./assets/Slime1_Walk_body.png");
-        const jumpSheet = await Assets.load("./assets/Slime1_Jump_body.png");
+        const walkSheet = await Assets.load("./assets/Slime1/Walk/Slime1_Walk_body.png");
+        const jumpSheet = await Assets.load("./assets/Slime1/Run/Slime1_Run_body.png");
+        const bgTexture = await Assets.load("./assets/BackGrounds/city 7/7.png");
+        const Tile = await Assets.load("./assets/Tiles&Objects/1 Tiles/Tile_01.png");
+
+
+        // 배경 추가
+        const bgSprite = new TilingSprite({
+            texture: bgTexture,
+            width: app.screen.width,
+            height: app.screen.height,
+        });
+        app.stage.addChild(bgSprite);
+        bgSprite.tileScale.set(1);
+
+        // 배경 스케일 조정 함수
+        function adjustBackgroundScale() {
+            const scale = window.innerHeight / bgTexture.height;
+            bgSprite.tileScale.set(scale);
+            bgSprite.width = window.innerWidth;
+            bgSprite.height = window.innerHeight;
+        }
+
+        adjustBackgroundScale();
+        window.addEventListener("resize", adjustBackgroundScale);
+
+        // 배경 움직임 추가
+        app.ticker.add(() => {
+            bgSprite.tilePosition.x -= 2;
+            platforms.forEach(platform => {
+                platform.x -= 7;
+                
+                // 타일이 화면 왼쪽으로 완전히 사라지면 오른쪽으로 재배치
+                if (platform.x + platform.width < 0) {
+                    platform.x = app.screen.width;
+                    platform.y = Math.floor(Math.random() * (app.screen.height - 100)) + 50;
+                }
+            });
+        });
 
         // 걷기 애니메이션 프레임 생성 (1행 사용)
         const walkFrames = [];
@@ -82,31 +119,25 @@ export default async function main() {
         const platforms = [];
         
         // 플랫폼 정의 (x, y, width, height)
-        const platformConfigs = [
-            { x: 0, y: 800, width: 400, height: 20 }, // 기본 플랫폼
-            { x: 750, y: 350, width: 200, height: 20 }, // 오른쪽 위 플랫폼
-            { x: 200, y: 500, width: 200, height: 20 }, // 왼쪽 위 플랫폼
-            { x: 500, y: 200, width: 150, height: 20 }, // 최상단 플랫폼
-        ];
+        const platformConfigs = [];
 
         // 랜덤 플랫폼 추가
-        const randomPlatformCount = 10;
+        const randomPlatformCount = 15;
         for (let i = 0; i < randomPlatformCount; i++) {
-            const width = Math.floor(Math.random() * 150) + 80; // 80~230
-            const height = 20;
-            const x = Math.floor(Math.random() * (app.screen.width - width));
-            const y = Math.floor(Math.random() * (app.screen.height - 100));
+            const width = 32; 
+            const height = 32;  
+            const x = Math.floor(Math.random() * (app.screen.width ));
+            const y = Math.floor(Math.random() * (app.screen.height ));
             platformConfigs.push({ x, y, width, height });
         }
 
         // 플랫폼 생성 및 추가
         platformConfigs.forEach(config => {
             const platform = new TilingSprite({
-                texture: Texture.WHITE,
+                texture: Tile,
                 width: config.width,
                 height: config.height,
             });
-            platform.tint = 0x00FF00;
             platform.x = config.x;
             platform.y = config.y;
             app.stage.addChild(platform);
@@ -118,6 +149,7 @@ export default async function main() {
         const gravity = 0.5;
         const jumpForce = -15;
         let isJumping = false;
+        let canDoubleJump = false;  // 이중점프 가능 여부
         let isMoving = false;
         let currentAnimation = 'walk';
         let lastDirection = 'right'; // 마지막 이동 방향 저장
@@ -158,10 +190,14 @@ export default async function main() {
                     changeAnimation('walk', newDirection);
                 }
             }
-            if (e.key === " " && !isJumping) {  // 스페이스바로 변경
+            if (e.key === " " && !isJumping) {  // 첫 점프
                 isJumping = true;
+                canDoubleJump = true;  // 이중점프 가능 상태로 변경
                 changeAnimation('jump', lastDirection);
                 velocityY = jumpForce;
+            } else if (e.key === " " && isJumping && canDoubleJump) {  // 이중점프
+                canDoubleJump = false;  // 이중점프 사용
+                velocityY = jumpForce * 0.8;  // 두 번째 점프는 약간 낮게
             }
         });
 
@@ -207,17 +243,20 @@ export default async function main() {
                 const currentBottom = player.y + actualPlayerHeight;
                 const nextBottom = nextY + actualPlayerHeight;
                 
-                // 플랫폼과의 충돌 감지 (현재 위치와 다음 위치 사이에서 충돌이 발생하는지 확인)
-                if (nextBottom > platform.y && 
-                    nextY + hitboxOffset * player.scale.y < platform.y + platform.height &&
-                    player.x + player.width > platform.x && 
-                    player.x < platform.x + platform.width) {
-                    
+                // 캐릭터 중심점이 플랫폼 위에 있을 때만 착지
+                const playerCenterX = player.x + player.width / 2;
+                if (
+                    nextBottom > platform.y &&
+                    nextY + hitboxOffset * player.scale.y < platform.y &&
+                    playerCenterX > platform.x -platform.width &&
+                    playerCenterX < platform.x + platform.width +25
+                ) {
                     // 낙하 중일 때만 플랫폼에 착지
                     if (velocityY > 0 && currentBottom <= platform.y) {
                         player.y = platform.y - actualPlayerHeight;
                         velocityY = 0;
                         isJumping = false;
+                        canDoubleJump = false;  // 플랫폼에 착지하면 이중점프 초기화
                         isOnPlatform = true;
                         
                         if (!isMoving) {
@@ -241,6 +280,7 @@ export default async function main() {
                 player.y = app.screen.height - player.height;
                 velocityY = 0;
                 isJumping = false;
+                canDoubleJump = false;  // 바닥에 착지하면 이중점프 초기화
                 if (!isMoving) {
                     resetToFirstFrame();
                 }
